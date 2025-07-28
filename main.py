@@ -14,31 +14,36 @@ INPUT_DIR = Path("/app/input")
 OUTPUT_DIR = Path("/app/output")
 
 
-def process_single_pdf(pdf_path: Path):
+def process_single_pdf(pdf_path: Path, output_dir: Path) -> bool:
     """
-    Worker function to process a single PDF, handling exceptions gracefully.
-
-    Args:
-        pdf_path: The path to the PDF file to process.
-
-    Returns:
-        A tuple of (pdf_path, extracted_data) or (pdf_path, None) on error.
+    Worker function to process and save a single PDF outline.
+    Returns True on success, False on failure.
     """
     logging.info(f"Starting processing: {pdf_path.name}")
     try:
+        # 1. Extract outline data
         outline_data = extract_outline_from_pdf(pdf_path)
-        logging.info(f"Successfully processed: {pdf_path.name}")
-        return pdf_path, outline_data
+
+        # 2. Write output file directly from the worker process
+        if outline_data and outline_data["outline"]:
+            output_filename = output_dir / f"{pdf_path.stem}.json"
+            with open(output_filename, "w", encoding="utf-8") as f:
+                json.dump(outline_data, f, ensure_ascii=False, indent=4)
+            logging.info(f"Successfully processed and saved: {pdf_path.name}")
+            return True
+        else:
+            logging.warning(f"No outline found for: {pdf_path.name}")
+            return False
+
     except Exception as e:
-        # Log the full exception traceback for easier debugging in production
         logging.exception(f"Error processing {pdf_path.name}: {e}")
-        return pdf_path, None
+        return False
 
 
 def main():
     """
-    Main entry point. Finds all PDF files in the input directory and processes
-    them in parallel using a process pool.
+    Main entry point. Finds all PDF files and processes them in parallel.
+    Each worker process now handles its own JSON file output.
     """
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     pdf_files = list(INPUT_DIR.glob("*.pdf"))
@@ -47,23 +52,19 @@ def main():
         logging.warning("No PDF files found in /app/input. Exiting.")
         return
 
+    num_cores = os.cpu_count() or 1
     logging.info(
-        f"Found {len(pdf_files)} PDF(s). Starting parallel processing on {os.cpu_count()} cores."
+        f"Found {len(pdf_files)} PDF(s). Starting parallel processing on {num_cores} cores."
     )
 
-    with ProcessPoolExecutor(max_workers=os.cpu_count()) as executor:
-        results = list(executor.map(process_single_pdf, pdf_files))
-
     success_count = 0
-    for pdf_path, outline_data in results:
-        if outline_data:
-            output_filename = OUTPUT_DIR / f"{pdf_path.stem}.json"
-            try:
-                with open(output_filename, "w", encoding="utf-8") as f:
-                    json.dump(outline_data, f, ensure_ascii=False, indent=4)
-                success_count += 1
-            except IOError as e:
-                logging.error(f"Failed to write output file for {pdf_path.name}: {e}")
+    with ProcessPoolExecutor(max_workers=num_cores) as executor:
+        # Map each pdf file to the worker function, providing the output directory
+        results = executor.map(
+            process_single_pdf, pdf_files, [OUTPUT_DIR] * len(pdf_files)
+        )
+        # Sum the boolean results to get the total success count
+        success_count = sum(1 for r in results if r)
 
     logging.info(
         f"Processing complete. {success_count}/{len(pdf_files)} outlines generated."

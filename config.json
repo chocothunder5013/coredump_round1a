@@ -1,0 +1,6 @@
+{
+    "MIN_HEADING_WORDS": 1,
+    "MAX_HEADING_WORDS": 30,
+    "MAX_HEADING_LEVELS": 5,
+    "HEADING_STRUCTURE_REGEX": "^([A-Za-z\\d]+(?:\\.[A-Za-z\\d]+)*|[IVXLCDMivxlcdm]+|[\u0966-\u096F]+|[一二三四五六七八九十]+)[\u002E\uFF0E\u3002]?[\uff09)]*\\s+"
+}
